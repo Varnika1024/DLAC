@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionPort 2 | CO1</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1220; --panel:#121d30; --line:#263750; --muted:#a8b6ca; --blue:#60a5fa; --green:#34d399; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:linear-gradient(145deg,#0b1220,#101d31); color:#edf4ff; font-family:Arial,sans-serif; }
+    .wrap { max-width:1100px; margin:0 auto; padding:28px 18px 50px; }
+    header { margin-bottom:22px; }
+    h1 { margin:0 0 8px; font-size:30px; }
+    .sub { color:var(--muted); margin:0; line-height:1.5; }
+    .panel { background:rgba(18,29,48,.96); border:1px solid var(--line); border-radius:16px; padding:20px; margin:16px 0; }
+    .upload-row { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+    input[type=file] { max-width:100%; color:var(--muted); }
+    button { background:#2563eb; color:white; border:0; border-radius:9px; padding:11px 18px; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    #status { color:var(--muted); margin-top:12px; min-height:20px; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+    .metric { background:#0d1728; border:1px solid var(--line); border-radius:12px; padding:15px; }
+    .metric .label { color:var(--muted); font-size:13px; }
+    .metric .value { font-size:25px; font-weight:700; margin-top:7px; }
+    .results { display:grid; grid-template-columns: minmax(0,1.15fr) minmax(280px,.85fr); gap:16px; align-items:start; }
+    img { display:block; max-width:100%; max-height:620px; margin:10px auto 0; border-radius:10px; }
+    .placeholder { color:var(--muted); padding:35px 10px; text-align:center; border:1px dashed var(--line); border-radius:10px; }
+    .chart-row { display:grid; grid-template-columns:105px 1fr 30px; gap:10px; align-items:center; margin:16px 0; font-size:14px; }
+    .track { height:13px; border-radius:20px; background:#263750; overflow:hidden; }
+    .bar { height:100%; width:0%; border-radius:20px; background:linear-gradient(90deg,#3b82f6,#34d399); transition:width .45s ease; }
+    .count { text-align:right; font-weight:700; }
+    .note { color:var(--muted); font-size:12px; line-height:1.5; }
+    @media(max-width:760px) { .results { grid-template-columns:1fr; } h1 {font-size:25px;} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>VisionPort 2 – Traffic Detection</h1>
+    <p class="sub">CO1 practical: upload one road image, detect vehicles with YOLOv8 Nano, and graph the actual detection counts.</p>
+  </header>
+
+  <section class="panel">
+    <h2>1. Upload traffic image</h2>
+    <div class="upload-row">
+      <input id="imageInput" type="file" accept="image/*">
+      <button id="detectButton" onclick="detectVehicles()">Detect vehicles</button>
+    </div>
+    <div id="status">Choose a JPG or PNG image (maximum 10 MB).</div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Detection summary</h2>
+    <div class="metrics">
+      <div class="metric"><div class="label">Total vehicles</div><div class="value" id="total">—</div></div>
+      <div class="metric"><div class="label">Inference time</div><div class="value" id="latency">—</div></div>
+      <div class="metric"><div class="label">Processing device</div><div class="value" id="device">—</div></div>
+      <div class="metric"><div class="label">Model</div><div class="value" id="model">YOLOv8n</div></div>
+    </div>
+  </section>
+
+  <div class="results">
+    <section class="panel">
+      <h2>3. Annotated result</h2>
+      <div id="imageArea" class="placeholder">Your detected image will appear here after inference.</div>
+    </section>
+    <section class="panel">
+      <h2>4. Vehicle count graph</h2>
+      <p class="note">This graph updates from the counts returned by YOLO for the image you upload. Zero-count categories remain visible.</p>
+      <div id="chart">
+        <div class="placeholder">Run detection to generate your results graph.</div>
+      </div>
+      <p class="note">The bar lengths represent the number of detected objects in each category. This is a count graph, not an accuracy or training-performance graph.</p>
+    </section>
+  </div>
+  <section class="panel">
+    <h2>5. Detection details</h2>
+    <div id="details" class="note">No detections yet.</div>
+  </section>
+</div>
+
+<script>
+async function detectVehicles() {
+  const input = document.getElementById("imageInput");
+  const button = document.getElementById("detectButton");
+  const status = document.getElementById("status");
+  if (!input.files.length) {
+    status.textContent = "Please choose an image first.";
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", input.files[0]);
+  button.disabled = true;
+  status.textContent = "Processing image. The first run may take longer while the model loads.";
+  document.getElementById("imageArea").textContent = "Running detection…";
+
+  try {
+    const response = await fetch("/detect", { method: "POST", body: formData });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Detection failed.");
+
+    document.getElementById("total").textContent = data.total;
+    document.getElementById("latency").textContent = data.inference_ms + " ms";
+    document.getElementById("device").textContent = data.device.toUpperCase();
+    document.getElementById("model").textContent = data.model;
+    document.getElementById("imageArea").innerHTML =
+      `<img alt="Traffic image with detected vehicles" src="data:image/jpeg;base64,${data.annotated_image}">`;
+
+    renderCountGraph(data.counts);
+    renderDetails(data.detections);
+    status.textContent = "Detection completed successfully.";
+  } catch (error) {
+    status.textContent = "Error: " + error.message;
+    document.getElementById("imageArea").textContent = "No result image.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderCountGraph(counts) {
+  const chart = document.getElementById("chart");
+  const entries = Object.entries(counts || {});
+  const maxCount = Math.max(1, ...entries.map(([, count]) => Number(count)));
+  chart.innerHTML = entries.map(([name, count]) => {
+    const width = (Number(count) / maxCount) * 100;
+    return `<div class="chart-row">
+      <div>${escapeHtml(name)}</div>
+      <div class="track"><div class="bar" style="width:${width}%"></div></div>
+      <div class="count">${Number(count)}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderDetails(detections) {
+  const target = document.getElementById("details");
+  if (!detections || detections.length === 0) {
+    target.textContent = "No supported vehicles were detected at the current confidence threshold.";
+    return;
+  }
+  target.innerHTML = "<ol>" + detections.map(item =>
+    `<li>${escapeHtml(item.class)} — confidence ${(Number(item.confidence) * 100).toFixed(1)}% — box [${item.box_xyxy.join(", ")}]</li>`
+  ).join("") + "</ol>";
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+  }[char]));
+}
+</script>
+</body>
+</html>
