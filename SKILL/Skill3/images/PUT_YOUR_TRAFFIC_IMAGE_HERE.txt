@@ -1,0 +1,1 @@
+Place your traffic image in this folder if you want to keep it with the project. You can also upload it directly from the browser page.

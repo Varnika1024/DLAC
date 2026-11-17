@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionPort - Skill 3</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 35px auto; padding: 0 18px; color: #222; }
+    h1 { margin-bottom: 6px; }
+    .muted { color: #666; }
+    .panel { border: 1px solid #ddd; border-radius: 10px; padding: 18px; margin: 18px 0; }
+    button { padding: 10px 16px; cursor: pointer; border: 0; border-radius: 6px; background: #1769aa; color: white; }
+    button:disabled { opacity: .5; cursor: wait; }
+    img { max-width: 100%; border-radius: 8px; margin-top: 12px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f4f4f4; padding: 12px; border-radius: 8px; }
+    .step { padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>VisionPort — Skill 3</h1>
+  <p class="muted">Inference Request Trace: API Input → Preprocessing → Model Execution → Postprocessing → Response</p>
+
+  <div class="panel">
+    <h3>1. Choose your traffic image</h3>
+    <input id="imageFile" type="file" accept="image/*">
+    <p><button id="runButton" onclick="runDetection()">Run vehicle detection</button></p>
+    <p id="status" class="muted">Choose an image, then click the button.</p>
+  </div>
+
+  <div class="panel">
+    <h3>2. Inference stages</h3>
+    <div class="step">① API Input — browser sends the image to FastAPI.</div>
+    <div class="step">② Preprocessing — OpenCV converts the file bytes into an image array.</div>
+    <div class="step">③ Model Execution — YOLOv8 Nano predicts vehicle locations.</div>
+    <div class="step">④ Postprocessing — detected classes, confidence scores and boxes are collected.</div>
+    <div class="step">⑤ Response — FastAPI sends JSON back to this page.</div>
+    <p class="muted">For the detailed trace, look at the PyCharm Run/Terminal window.</p>
+  </div>
+
+  <div class="panel">
+    <h3>3. Annotated result</h3>
+    <img id="resultImage" alt="Detection result will appear here" hidden>
+    <p id="summary"></p>
+  </div>
+
+  <div class="panel">
+    <h3>4. API JSON response</h3>
+    <pre id="jsonOutput">The response will appear here after detection.</pre>
+  </div>
+
+<script>
+async function runDetection() {
+  const input = document.getElementById("imageFile");
+  const button = document.getElementById("runButton");
+  const status = document.getElementById("status");
+  if (!input.files.length) {
+    status.textContent = "Please choose an image first.";
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", input.files[0]);
+  button.disabled = true;
+  status.textContent = "Sending request and running detection...";
+  document.getElementById("summary").textContent = "";
+
+  try {
+    const response = await fetch("/detect", { method: "POST", body: formData });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Request failed");
+
+    document.getElementById("resultImage").src = data.image;
+    document.getElementById("resultImage").hidden = false;
+    document.getElementById("summary").textContent =
+      `Vehicles detected: ${data.total_vehicles} | Device: ${data.device} | ` +
+      `Inference: ${data.inference_ms} ms | Total request: ${data.total_request_ms} ms`;
+const cleanData = {
+  message: data.message,
+  total_vehicles: data.total_vehicles,
+  counts: data.counts,
+  detections: data.detections,
+  preprocessing_ms: data.preprocessing_ms,
+  inference_ms: data.inference_ms,
+  total_request_ms: data.total_request_ms,
+  device: data.device,
+  model: data.model
+};
+
+document.getElementById("jsonOutput").textContent =
+  JSON.stringify(cleanData, null, 2);    status.textContent = "Finished. Check PyCharm for the five-stage trace.";
+  } catch (error) {
+    status.textContent = "Error: " + error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
